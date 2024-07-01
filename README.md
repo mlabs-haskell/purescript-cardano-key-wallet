@@ -1,5 +1,7 @@
-# purescript-uplc-apply-args
+# purescript-cardano-key-wallet
 
-A PureScript implementation of argument application for Cardano Plutus scripts
-(nodejs & the browser). Wrapper over `applyArgs` from
-[uplc-apply-args](https://github.com/mlabs-haskell/uplc-apply-args).
+PureScript module the provides a common interface for wallet operations.
+The main module is `Cardano.Key.Wallet`.
+
+This package is used and tested in
+[cardano-transaction-lib](https://github.com/Plutonomicon/cardano-transaction-lib).
