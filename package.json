@@ -1,0 +1,18 @@
+{
+    "name": "purescript-cardano-key-wallet",
+    "type": "module",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/mlabs-haskell/purescript-cardano-key-wallet.git"
+    },
+    "scripts": {
+        "test": "spago test"
+    },
+    "dependencies": {
+        "@mlabs-haskell/json-bigint": "^2.0.0"
+    },
+    "prettier": {
+        "arrowParens": "avoid",
+        "trailingComma": "none"
+    }
+}
