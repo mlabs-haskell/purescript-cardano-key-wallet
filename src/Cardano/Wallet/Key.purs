@@ -51,12 +51,12 @@ minRequiredCollateral = wrap $ BigNum.fromInt 5_000_000
 
 -- | A wrapper over `PrivateKey` that provides an interface for CTL
 newtype KeyWallet = KeyWallet
-  { address :: NetworkId -> Address
+  { address :: NetworkId -> Aff Address
   , selectCollateral ::
       Coin
       -> Int
       -> UtxoMap
-      -> Maybe (Array TransactionUnspentOutput)
+      -> Aff (Maybe (Array TransactionUnspentOutput))
   , signTx :: Transaction -> Aff TransactionWitnessSet
   , signData :: NetworkId -> RawBytes -> Aff DataSignature
   , paymentKey :: PrivatePaymentKey
@@ -146,15 +146,15 @@ privateKeysToKeyWallet payKey mbStakeKey =
     , stakeKey: mbStakeKey
     }
   where
-  address :: NetworkId -> Address
-  address = privateKeysToAddress payKey mbStakeKey
+  address :: NetworkId -> Aff Address
+  address networkId = pure $ privateKeysToAddress payKey mbStakeKey networkId
 
   selectCollateral
     :: Coin
     -> Int
     -> UtxoMap
-    -> Maybe (Array TransactionUnspentOutput)
-  selectCollateral coinsPerUtxoByte maxCollateralInputs utxos = fromFoldable
+    -> Aff (Maybe (Array TransactionUnspentOutput))
+  selectCollateral coinsPerUtxoByte maxCollateralInputs utxos = pure $ fromFoldable
     -- Use 5 ADA as the minimum required collateral.
     <$> Collateral.selectCollateral coinsPerUtxoByte maxCollateralInputs minRequiredCollateral utxos
 
@@ -174,9 +174,8 @@ privateKeysToKeyWallet payKey mbStakeKey =
 
   signData :: NetworkId -> RawBytes -> Aff DataSignature
   signData networkId payload = do
-    liftEffect $ MessageSigning.signData (unwrap payKey)
-      (address networkId)
-      payload
+    addr <- address networkId
+    liftEffect $ MessageSigning.signData (unwrap payKey) addr payload
 
 _vkeys :: Lens' TransactionWitnessSet (Array Vkeywitness)
 _vkeys = _Newtype <<< prop (Proxy :: Proxy "vkeys")
