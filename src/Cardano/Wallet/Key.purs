@@ -1,4 +1,4 @@
-module Cardano.Key.Wallet
+module Cardano.Wallet.Key
   ( KeyWallet(KeyWallet)
   , PrivatePaymentKey(PrivatePaymentKey)
   , PrivateStakeKey(PrivateStakeKey)
@@ -10,7 +10,13 @@ module Cardano.Key.Wallet
 
 import Prelude
 
-import Aeson (class DecodeAeson, class EncodeAeson, JsonDecodeError(TypeMismatch), decodeAeson, encodeAeson)
+import Aeson
+  ( class DecodeAeson
+  , class EncodeAeson
+  , JsonDecodeError(TypeMismatch)
+  , decodeAeson
+  , encodeAeson
+  )
 import Cardano.Collateral.Select as Collateral
 import Cardano.MessageSigning (DataSignature)
 import Cardano.MessageSigning (signData) as MessageSigning
@@ -156,7 +162,9 @@ privateKeysToKeyWallet payKey mbStakeKey =
     -> Aff (Maybe (Array TransactionUnspentOutput))
   selectCollateral coinsPerUtxoByte maxCollateralInputs utxos = pure $ fromFoldable
     -- Use 5 ADA as the minimum required collateral.
-    <$> Collateral.selectCollateral coinsPerUtxoByte maxCollateralInputs minRequiredCollateral utxos
+    <$> Collateral.selectCollateral coinsPerUtxoByte maxCollateralInputs
+      minRequiredCollateral
+      utxos
 
   signTx :: Transaction -> Aff TransactionWitnessSet
   signTx tx = liftEffect do
