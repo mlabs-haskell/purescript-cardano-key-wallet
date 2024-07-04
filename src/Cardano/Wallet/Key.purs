@@ -4,8 +4,8 @@ module Cardano.Wallet.Key
   , PrivateStakeKey(PrivateStakeKey)
   , privateKeysToAddress
   , privateKeysToKeyWallet
-  , keyWalletPrivatePaymentKey
-  , keyWalletPrivateStakeKey
+  , getPrivatePaymentKey
+  , getPrivateStakeKey
   ) where
 
 import Prelude
@@ -21,7 +21,6 @@ import Cardano.Collateral.Select as Collateral
 import Cardano.MessageSigning (DataSignature)
 import Cardano.MessageSigning (signData) as MessageSigning
 import Cardano.Types.Address (Address(BaseAddress, EnterpriseAddress))
-import Cardano.Types.BigNum as BigNum
 import Cardano.Types.Coin (Coin)
 import Cardano.Types.Credential (Credential(PubKeyHashCredential))
 import Cardano.Types.NetworkId (NetworkId)
@@ -33,40 +32,40 @@ import Cardano.Types.RawBytes (RawBytes)
 import Cardano.Types.StakeCredential (StakeCredential(StakeCredential))
 import Cardano.Types.Transaction (Transaction, hash)
 import Cardano.Types.TransactionUnspentOutput (TransactionUnspentOutput)
-import Cardano.Types.TransactionWitnessSet (TransactionWitnessSet)
+import Cardano.Types.TransactionWitnessSet (TransactionWitnessSet, _vkeys)
 import Cardano.Types.UtxoMap (UtxoMap)
-import Cardano.Types.Vkeywitness (Vkeywitness)
 import Data.Array (fromFoldable)
 import Data.Either (note)
 import Data.Foldable (fold)
-import Data.Lens (set, Lens')
-import Data.Lens.Iso.Newtype (_Newtype)
-import Data.Lens.Record (prop)
+import Data.Lens (set)
 import Data.Maybe (Maybe(Just, Nothing))
 import Data.Newtype (class Newtype, unwrap, wrap)
 import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
-import Type.Prelude (Proxy(Proxy))
-
-minRequiredCollateral :: Coin
-minRequiredCollateral = wrap $ BigNum.fromInt 5_000_000
 
 -------------------------------------------------------------------------------
 -- Key backend
 -------------------------------------------------------------------------------
 
--- | A wrapper over `PrivateKey` that provides an interface for CTL
+-- | An interface that wraps `PrivateKey`s. Used in CTL.
+-- | Technically, can be implemented with remote calls, e.g. over HTTP,
+-- | to provide signing services without revealing the private key.
 newtype KeyWallet = KeyWallet
   { address :: NetworkId -> Aff Address
   , selectCollateral ::
       Coin
+      -- ^ Minimum required collateral
+      -> Coin
+      -- ^ Lovelace per UTxO byte parameter
       -> Int
+      -- ^ Maximum number of collateral inputs (use 3)
       -> UtxoMap
+      -- ^ UTxOs to select from
       -> Aff (Maybe (Array TransactionUnspentOutput))
   , signTx :: Transaction -> Aff TransactionWitnessSet
   , signData :: NetworkId -> RawBytes -> Aff DataSignature
-  , paymentKey :: PrivatePaymentKey
-  , stakeKey :: Maybe PrivateStakeKey
+  , paymentKey :: Aff PrivatePaymentKey
+  , stakeKey :: Aff (Maybe PrivateStakeKey)
   }
 
 derive instance Newtype KeyWallet _
@@ -107,11 +106,11 @@ instance DecodeAeson PrivateStakeKey where
         <<< map PrivateStakeKey
         <<< PrivateKey.fromBech32
 
-keyWalletPrivatePaymentKey :: KeyWallet -> PrivatePaymentKey
-keyWalletPrivatePaymentKey = unwrap >>> _.paymentKey
+getPrivatePaymentKey :: KeyWallet -> Aff PrivatePaymentKey
+getPrivatePaymentKey = unwrap >>> _.paymentKey
 
-keyWalletPrivateStakeKey :: KeyWallet -> Maybe PrivateStakeKey
-keyWalletPrivateStakeKey = unwrap >>> _.stakeKey
+getPrivateStakeKey :: KeyWallet -> Aff (Maybe PrivateStakeKey)
+getPrivateStakeKey = unwrap >>> _.stakeKey
 
 privateKeysToAddress
   :: PrivatePaymentKey -> Maybe PrivateStakeKey -> NetworkId -> Address
@@ -148,8 +147,8 @@ privateKeysToKeyWallet payKey mbStakeKey =
     , selectCollateral
     , signTx
     , signData
-    , paymentKey: payKey
-    , stakeKey: mbStakeKey
+    , paymentKey: pure payKey
+    , stakeKey: pure mbStakeKey
     }
   where
   address :: NetworkId -> Aff Address
@@ -157,10 +156,11 @@ privateKeysToKeyWallet payKey mbStakeKey =
 
   selectCollateral
     :: Coin
+    -> Coin
     -> Int
     -> UtxoMap
     -> Aff (Maybe (Array TransactionUnspentOutput))
-  selectCollateral coinsPerUtxoByte maxCollateralInputs utxos = pure $ fromFoldable
+  selectCollateral minRequiredCollateral coinsPerUtxoByte maxCollateralInputs utxos = pure $ fromFoldable
     -- Use 5 ADA as the minimum required collateral.
     <$> Collateral.selectCollateral coinsPerUtxoByte maxCollateralInputs
       minRequiredCollateral
@@ -184,6 +184,3 @@ privateKeysToKeyWallet payKey mbStakeKey =
   signData networkId payload = do
     addr <- address networkId
     liftEffect $ MessageSigning.signData (unwrap payKey) addr payload
-
-_vkeys :: Lens' TransactionWitnessSet (Array Vkeywitness)
-_vkeys = _Newtype <<< prop (Proxy :: Proxy "vkeys")

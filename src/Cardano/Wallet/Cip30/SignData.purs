@@ -13,7 +13,6 @@ import Cardano.Wallet.Key
   , PrivateStakeKey(PrivateStakeKey)
   , privateKeysToAddress
   )
-import Cardano.Keys (publicKeyFromBytes)
 import Cardano.MessageSigning (DataSignature, signData)
 import Cardano.Types (Address, CborBytes, PrivateKey(PrivateKey), PublicKey, RawBytes)
 import Cardano.Types.NetworkId (NetworkId(MainnetId))
@@ -120,7 +119,7 @@ checkCip30SignDataResponse address { key, signature } = do
   checkVerification coseSign1 coseKey = do
     publicKey <-
       errMaybe "COSE_Key's x (-2) header must be set to public key bytes"
-        $ getCoseKeyHeaderX coseKey >>= publicKeyFromBytes
+        $ getCoseKeyHeaderX coseKey >>= PublicKey.fromRawBytes
     sigStructBytes <- getSignedData coseSign1
     assertTrue "Signature verification failed"
       =<< verifySignature coseSign1 publicKey sigStructBytes

@@ -33,7 +33,6 @@ to generate this file without the comments in this block.
   , "profunctor-lenses"
   , "quickcheck"
   , "spec"
-  , "typelevel-prelude"
   ]
 , packages = ./packages.dhall
 , sources = [ "src/**/*.purs", "test/**/*.purs" ]
