@@ -15,23 +15,17 @@ to generate this file without the comments in this block.
   [ "aeson"
   , "aff"
   , "arrays"
-  , "bytearrays"
   , "cardano-collateral-select"
   , "cardano-message-signing"
   , "cardano-types"
   , "console"
   , "effect"
   , "either"
-  , "exceptions"
   , "foldable-traversable"
   , "maybe"
-  , "mote"
-  , "mote-testplan"
   , "newtype"
-  , "partial"
   , "prelude"
   , "profunctor-lenses"
-  , "quickcheck"
   ]
 , packages = ./packages.dhall
 , sources = [ "src/**/*.purs", "test/**/*.purs" ]
