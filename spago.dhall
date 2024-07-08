@@ -19,7 +19,7 @@ to generate this file without the comments in this block.
   , "cardano-collateral-select"
   , "cardano-message-signing"
   , "cardano-types"
-  , "datetime"
+  , "console"
   , "effect"
   , "either"
   , "exceptions"
@@ -32,7 +32,6 @@ to generate this file without the comments in this block.
   , "prelude"
   , "profunctor-lenses"
   , "quickcheck"
-  , "spec"
   ]
 , packages = ./packages.dhall
 , sources = [ "src/**/*.purs", "test/**/*.purs" ]
