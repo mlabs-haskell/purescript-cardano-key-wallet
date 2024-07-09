@@ -20,6 +20,7 @@ import Aeson
 import Cardano.Collateral.Select as Collateral
 import Cardano.MessageSigning (DataSignature)
 import Cardano.MessageSigning (signData) as MessageSigning
+import Cardano.Types (Vkeywitness)
 import Cardano.Types.Address (Address(BaseAddress, EnterpriseAddress))
 import Cardano.Types.Coin (Coin)
 import Cardano.Types.Credential (Credential(PubKeyHashCredential))
@@ -32,12 +33,13 @@ import Cardano.Types.RawBytes (RawBytes)
 import Cardano.Types.StakeCredential (StakeCredential(StakeCredential))
 import Cardano.Types.Transaction (Transaction, hash)
 import Cardano.Types.TransactionUnspentOutput (TransactionUnspentOutput)
-import Cardano.Types.TransactionWitnessSet (TransactionWitnessSet, _vkeys)
+import Cardano.Types.TransactionWitnessSet
+  ( TransactionWitnessSet(TransactionWitnessSet)
+  )
 import Cardano.Types.UtxoMap (UtxoMap)
 import Data.Array (fromFoldable)
 import Data.Either (note)
 import Data.Foldable (fold)
-import Data.Lens (set)
 import Data.Maybe (Maybe(Just, Nothing))
 import Data.Newtype (class Newtype, unwrap, wrap)
 import Effect.Aff (Aff)
@@ -160,7 +162,11 @@ privateKeysToKeyWallet payKey mbStakeKey =
     -> Int
     -> UtxoMap
     -> Aff (Maybe (Array TransactionUnspentOutput))
-  selectCollateral minRequiredCollateral coinsPerUtxoByte maxCollateralInputs utxos = pure $ fromFoldable
+  selectCollateral
+    minRequiredCollateral
+    coinsPerUtxoByte
+    maxCollateralInputs
+    utxos = pure $ fromFoldable
     -- Use 5 ADA as the minimum required collateral.
     <$> Collateral.selectCollateral coinsPerUtxoByte maxCollateralInputs
       minRequiredCollateral
@@ -174,13 +180,19 @@ privateKeysToKeyWallet payKey mbStakeKey =
       mbStakeWitness =
         mbStakeKey <#> \stakeKey ->
           PrivateKey.makeVkeyWitness txHash (unwrap stakeKey)
-    let
-      witnessSet' = set _vkeys
-        ([ payWitness ] <> fold (pure <$> mbStakeWitness))
-        mempty
+      witnessSet' =
+        updateVkeys ([ payWitness ] <> fold (pure <$> mbStakeWitness)) mempty
     pure witnessSet'
+    where
+    updateVkeys
+      :: Array Vkeywitness
+      -> TransactionWitnessSet
+      -> TransactionWitnessSet
+    updateVkeys newVkeys (TransactionWitnessSet tws) =
+      TransactionWitnessSet (tws { vkeys = newVkeys })
 
   signData :: NetworkId -> RawBytes -> Aff DataSignature
   signData networkId payload = do
     addr <- address networkId
     liftEffect $ MessageSigning.signData (unwrap payKey) addr payload
+

@@ -25,7 +25,6 @@ to generate this file without the comments in this block.
   , "maybe"
   , "newtype"
   , "prelude"
-  , "profunctor-lenses"
   ]
 , packages = ./packages.dhall
 , sources = [ "src/**/*.purs", "test/**/*.purs" ]
