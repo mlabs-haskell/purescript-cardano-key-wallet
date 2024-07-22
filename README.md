@@ -14,6 +14,7 @@ newtype KeyWallet = KeyWallet
   , signData :: NetworkId -> RawBytes -> Aff DataSignature
   , paymentKey :: Aff PrivatePaymentKey
   , stakeKey :: Aff (Maybe PrivateStakeKey)
+  , drepKey :: Aff PrivateDrepKey
   }
 ```
 
@@ -25,7 +26,10 @@ To create a `KeyWallet` from private key(s), use this function:
 
 ```purescript
 Cardano.Wallet.Key.privateKeysToKeyWallet
-  :: PrivatePaymentKey -> Maybe PrivateStakeKey -> KeyWallet
+  :: PrivatePaymentKey
+  -> Maybe PrivateStakeKey
+  -> PrivateDrepKey
+  -> KeyWallet
 ```
 
 ## Test coverage

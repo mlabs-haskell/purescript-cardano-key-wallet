@@ -1,9 +1,11 @@
 module Cardano.Wallet.Key
   ( KeyWallet(KeyWallet)
+  , PrivateDrepKey(PrivateDrepKey)
   , PrivatePaymentKey(PrivatePaymentKey)
   , PrivateStakeKey(PrivateStakeKey)
   , privateKeysToAddress
   , privateKeysToKeyWallet
+  , getPrivateDrepKey
   , getPrivatePaymentKey
   , getPrivateStakeKey
   ) where
@@ -68,6 +70,7 @@ newtype KeyWallet = KeyWallet
   , signData :: NetworkId -> RawBytes -> Aff DataSignature
   , paymentKey :: Aff PrivatePaymentKey
   , stakeKey :: Aff (Maybe PrivateStakeKey)
+  , drepKey :: Aff PrivateDrepKey
   }
 
 derive instance Newtype KeyWallet _
@@ -108,11 +111,32 @@ instance DecodeAeson PrivateStakeKey where
         <<< map PrivateStakeKey
         <<< PrivateKey.fromBech32
 
+newtype PrivateDrepKey = PrivateDrepKey PrivateKey
+
+derive instance Newtype PrivateDrepKey _
+
+instance Show PrivateDrepKey where
+  show _ = "(PrivateDrepKey <hidden>)"
+
+instance EncodeAeson PrivateDrepKey where
+  encodeAeson (PrivateDrepKey pk) = encodeAeson
+    (PrivateKey.toBech32 pk)
+
+instance DecodeAeson PrivateDrepKey where
+  decodeAeson aeson =
+    decodeAeson aeson >>=
+      note (TypeMismatch "PrivateKey")
+        <<< map PrivateDrepKey
+        <<< PrivateKey.fromBech32
+
 getPrivatePaymentKey :: KeyWallet -> Aff PrivatePaymentKey
 getPrivatePaymentKey = unwrap >>> _.paymentKey
 
 getPrivateStakeKey :: KeyWallet -> Aff (Maybe PrivateStakeKey)
 getPrivateStakeKey = unwrap >>> _.stakeKey
+
+getPrivateDrepKey :: KeyWallet -> Aff PrivateDrepKey
+getPrivateDrepKey = unwrap >>> _.drepKey
 
 privateKeysToAddress
   :: PrivatePaymentKey -> Maybe PrivateStakeKey -> NetworkId -> Address
@@ -142,8 +166,11 @@ privateKeysToAddress payKey mbStakeKey networkId = do
       >>> EnterpriseAddress
 
 privateKeysToKeyWallet
-  :: PrivatePaymentKey -> Maybe PrivateStakeKey -> KeyWallet
-privateKeysToKeyWallet payKey mbStakeKey =
+  :: PrivatePaymentKey
+  -> Maybe PrivateStakeKey
+  -> PrivateDrepKey
+  -> KeyWallet
+privateKeysToKeyWallet payKey mbStakeKey drepKey =
   KeyWallet
     { address
     , selectCollateral
@@ -151,6 +178,7 @@ privateKeysToKeyWallet payKey mbStakeKey =
     , signData
     , paymentKey: pure payKey
     , stakeKey: pure mbStakeKey
+    , drepKey: pure drepKey
     }
   where
   address :: NetworkId -> Aff Address
@@ -172,6 +200,7 @@ privateKeysToKeyWallet payKey mbStakeKey =
       minRequiredCollateral
       utxos
 
+  -- TODO: Sign tx with the DRep key when required
   signTx :: Transaction -> Aff TransactionWitnessSet
   signTx tx = liftEffect do
     let
@@ -191,8 +220,8 @@ privateKeysToKeyWallet payKey mbStakeKey =
     updateVkeys newVkeys (TransactionWitnessSet tws) =
       TransactionWitnessSet (tws { vkeys = newVkeys })
 
+  -- TODO: Support signing data using DRep keys
   signData :: NetworkId -> RawBytes -> Aff DataSignature
   signData networkId payload = do
     addr <- address networkId
     liftEffect $ MessageSigning.signData (unwrap payKey) addr payload
-
