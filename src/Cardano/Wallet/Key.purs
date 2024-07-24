@@ -70,7 +70,7 @@ newtype KeyWallet = KeyWallet
   , signData :: NetworkId -> RawBytes -> Aff DataSignature
   , paymentKey :: Aff PrivatePaymentKey
   , stakeKey :: Aff (Maybe PrivateStakeKey)
-  , drepKey :: Aff PrivateDrepKey
+  , drepKey :: Aff (Maybe PrivateDrepKey)
   }
 
 derive instance Newtype KeyWallet _
@@ -135,7 +135,7 @@ getPrivatePaymentKey = unwrap >>> _.paymentKey
 getPrivateStakeKey :: KeyWallet -> Aff (Maybe PrivateStakeKey)
 getPrivateStakeKey = unwrap >>> _.stakeKey
 
-getPrivateDrepKey :: KeyWallet -> Aff PrivateDrepKey
+getPrivateDrepKey :: KeyWallet -> Aff (Maybe PrivateDrepKey)
 getPrivateDrepKey = unwrap >>> _.drepKey
 
 privateKeysToAddress
@@ -168,9 +168,9 @@ privateKeysToAddress payKey mbStakeKey networkId = do
 privateKeysToKeyWallet
   :: PrivatePaymentKey
   -> Maybe PrivateStakeKey
-  -> PrivateDrepKey
+  -> Maybe PrivateDrepKey
   -> KeyWallet
-privateKeysToKeyWallet payKey mbStakeKey drepKey =
+privateKeysToKeyWallet payKey mbStakeKey mbDrepKey =
   KeyWallet
     { address
     , selectCollateral
@@ -178,7 +178,7 @@ privateKeysToKeyWallet payKey mbStakeKey drepKey =
     , signData
     , paymentKey: pure payKey
     , stakeKey: pure mbStakeKey
-    , drepKey: pure drepKey
+    , drepKey: pure mbDrepKey
     }
   where
   address :: NetworkId -> Aff Address
