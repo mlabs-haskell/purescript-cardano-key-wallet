@@ -24,6 +24,7 @@ to generate this file without the comments in this block.
   , "foldable-traversable"
   , "maybe"
   , "newtype"
+  , "ordered-collections"
   , "prelude"
   ]
 , packages = ./packages.dhall

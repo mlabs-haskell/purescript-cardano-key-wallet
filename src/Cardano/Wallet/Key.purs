@@ -3,6 +3,7 @@ module Cardano.Wallet.Key
   , PrivateDrepKey(PrivateDrepKey)
   , PrivatePaymentKey(PrivatePaymentKey)
   , PrivateStakeKey(PrivateStakeKey)
+  , privateKeyToPkh
   , privateKeysToAddress
   , privateKeysToKeyWallet
   , getPrivateDrepKey
@@ -24,8 +25,12 @@ import Cardano.MessageSigning (DataSignature)
 import Cardano.MessageSigning (signData) as MessageSigning
 import Cardano.Types (Vkeywitness)
 import Cardano.Types.Address (Address(BaseAddress, EnterpriseAddress))
+import Cardano.Types.Certificate
+  ( Certificate(RegDrepCert, UnregDrepCert, UpdateDrepCert)
+  )
 import Cardano.Types.Coin (Coin)
 import Cardano.Types.Credential (Credential(PubKeyHashCredential))
+import Cardano.Types.Ed25519KeyHash (Ed25519KeyHash)
 import Cardano.Types.NetworkId (NetworkId)
 import Cardano.Types.PaymentCredential (PaymentCredential(PaymentCredential))
 import Cardano.Types.PrivateKey (PrivateKey(PrivateKey))
@@ -33,15 +38,19 @@ import Cardano.Types.PrivateKey as PrivateKey
 import Cardano.Types.PublicKey as PublicKey
 import Cardano.Types.RawBytes (RawBytes)
 import Cardano.Types.StakeCredential (StakeCredential(StakeCredential))
-import Cardano.Types.Transaction (Transaction, hash)
+import Cardano.Types.Transaction (Transaction(Transaction), hash)
+import Cardano.Types.TransactionBody (TransactionBody(TransactionBody))
 import Cardano.Types.TransactionUnspentOutput (TransactionUnspentOutput)
 import Cardano.Types.TransactionWitnessSet
   ( TransactionWitnessSet(TransactionWitnessSet)
   )
 import Cardano.Types.UtxoMap (UtxoMap)
+import Cardano.Types.Voter (Voter(Drep))
+import Data.Array (catMaybes, elem) as Array
 import Data.Array (fromFoldable)
 import Data.Either (note)
-import Data.Foldable (fold)
+import Data.Foldable (any)
+import Data.Map (member) as Map
 import Data.Maybe (Maybe(Just, Nothing))
 import Data.Newtype (class Newtype, unwrap, wrap)
 import Effect.Aff (Aff)
@@ -129,6 +138,12 @@ instance DecodeAeson PrivateDrepKey where
         <<< map PrivateDrepKey
         <<< PrivateKey.fromBech32
 
+privateKeyToPkh :: forall t. Newtype t PrivateKey => t -> Ed25519KeyHash
+privateKeyToPkh =
+  PublicKey.hash
+    <<< PrivateKey.toPublicKey
+    <<< unwrap
+
 getPrivatePaymentKey :: KeyWallet -> Aff PrivatePaymentKey
 getPrivatePaymentKey = unwrap >>> _.paymentKey
 
@@ -200,18 +215,24 @@ privateKeysToKeyWallet payKey mbStakeKey mbDrepKey =
       minRequiredCollateral
       utxos
 
-  -- TODO: Sign tx with the DRep key when required
   signTx :: Transaction -> Aff TransactionWitnessSet
-  signTx tx = liftEffect do
+  signTx tx@(Transaction { body: TransactionBody txBody }) = liftEffect do
     let
       txHash = hash tx
       payWitness = PrivateKey.makeVkeyWitness txHash (unwrap payKey)
       mbStakeWitness =
         mbStakeKey <#> \stakeKey ->
           PrivateKey.makeVkeyWitness txHash (unwrap stakeKey)
-      witnessSet' =
-        updateVkeys ([ payWitness ] <> fold (pure <$> mbStakeWitness)) mempty
-    pure witnessSet'
+      mbDrepWitness = do
+        drepKey <- mbDrepKey
+        if drepSigRequired drepKey then Just $ PrivateKey.makeVkeyWitness txHash
+          (unwrap drepKey)
+        else Nothing
+      witnessSet =
+        updateVkeys
+          (Array.catMaybes [ Just payWitness, mbStakeWitness, mbDrepWitness ])
+          mempty
+    pure witnessSet
     where
     updateVkeys
       :: Array Vkeywitness
@@ -219,6 +240,35 @@ privateKeysToKeyWallet payKey mbStakeKey mbDrepKey =
       -> TransactionWitnessSet
     updateVkeys newVkeys (TransactionWitnessSet tws) =
       TransactionWitnessSet (tws { vkeys = newVkeys })
+
+    drepSigRequired :: PrivateDrepKey -> Boolean
+    drepSigRequired drepKey =
+      checkCerts
+        || checkVotes
+        || checkRequiredSigners
+      -- check proposals?
+      where
+      checkCerts :: Boolean
+      checkCerts = any isDrepCert txBody.certs
+
+      checkVotes :: Boolean
+      checkVotes = Map.member (Drep drepCred) $ unwrap txBody.votingProcedures
+
+      checkRequiredSigners :: Boolean
+      checkRequiredSigners = Array.elem drepPkh txBody.requiredSigners
+
+      drepPkh :: Ed25519KeyHash
+      drepPkh = privateKeyToPkh drepKey
+
+      drepCred :: Credential
+      drepCred = PubKeyHashCredential drepPkh
+
+      isDrepCert :: Certificate -> Boolean
+      isDrepCert = case _ of
+        RegDrepCert cred _ _ -> cred == drepCred
+        UnregDrepCert cred _ -> cred == drepCred
+        UpdateDrepCert cred _ -> cred == drepCred
+        _ -> false
 
   -- TODO: Support signing data using DRep keys
   signData :: NetworkId -> RawBytes -> Aff DataSignature

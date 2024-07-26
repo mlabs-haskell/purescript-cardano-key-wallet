@@ -7,4 +7,5 @@ import Effect.Console (log)
 
 main :: Effect Unit
 main = do
-  log "Tests are implemented in CTL (https://github.com/Plutonomicon/cardano-transaction-lib)"
+  log
+    "Tests are implemented in CTL (https://github.com/Plutonomicon/cardano-transaction-lib)"
