@@ -21,11 +21,13 @@ to generate this file without the comments in this block.
   , "console"
   , "effect"
   , "either"
+  , "exceptions"
   , "foldable-traversable"
   , "maybe"
   , "newtype"
   , "ordered-collections"
   , "prelude"
+  , "transformers"
   ]
 , packages = ./packages.dhall
 , sources = [ "src/**/*.purs", "test/**/*.purs" ]

@@ -3,6 +3,7 @@ module Cardano.Wallet.Key
   , PrivateDrepKey(PrivateDrepKey)
   , PrivatePaymentKey(PrivatePaymentKey)
   , PrivateStakeKey(PrivateStakeKey)
+  , SignDataAddr(WalletAddress, DrepId)
   , privateKeyToPkh
   , privateKeysToAddress
   , privateKeysToKeyWallet
@@ -24,7 +25,10 @@ import Cardano.Collateral.Select as Collateral
 import Cardano.MessageSigning (DataSignature)
 import Cardano.MessageSigning (signData) as MessageSigning
 import Cardano.Types (Vkeywitness)
-import Cardano.Types.Address (Address(BaseAddress, EnterpriseAddress))
+import Cardano.Types.Address
+  ( Address(BaseAddress, EnterpriseAddress)
+  , mkPaymentAddress
+  )
 import Cardano.Types.Certificate
   ( Certificate(RegDrepCert, UnregDrepCert, UpdateDrepCert)
   )
@@ -46,15 +50,19 @@ import Cardano.Types.TransactionWitnessSet
   )
 import Cardano.Types.UtxoMap (UtxoMap)
 import Cardano.Types.Voter (Voter(Drep))
+import Control.Monad.Error.Class (liftMaybe)
 import Data.Array (catMaybes, elem) as Array
 import Data.Array (fromFoldable)
 import Data.Either (note)
 import Data.Foldable (any)
+import Data.Generic.Rep (class Generic)
 import Data.Map (member) as Map
 import Data.Maybe (Maybe(Just, Nothing))
 import Data.Newtype (class Newtype, unwrap, wrap)
+import Data.Show.Generic (genericShow)
 import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
+import Effect.Exception (error)
 
 -------------------------------------------------------------------------------
 -- Key backend
@@ -76,13 +84,20 @@ newtype KeyWallet = KeyWallet
       -- ^ UTxOs to select from
       -> Aff (Maybe (Array TransactionUnspentOutput))
   , signTx :: Transaction -> Aff TransactionWitnessSet
-  , signData :: NetworkId -> RawBytes -> Aff DataSignature
+  , signData :: SignDataAddr -> NetworkId -> RawBytes -> Aff DataSignature
   , paymentKey :: Aff PrivatePaymentKey
   , stakeKey :: Aff (Maybe PrivateStakeKey)
   , drepKey :: Aff (Maybe PrivateDrepKey)
   }
 
 derive instance Newtype KeyWallet _
+
+data SignDataAddr = WalletAddress | DrepId
+
+derive instance Generic SignDataAddr _
+
+instance Show SignDataAddr where
+  show = genericShow
 
 newtype PrivatePaymentKey = PrivatePaymentKey PrivateKey
 
@@ -246,7 +261,6 @@ privateKeysToKeyWallet payKey mbStakeKey mbDrepKey =
       checkCerts
         || checkVotes
         || checkRequiredSigners
-      -- check proposals?
       where
       checkCerts :: Boolean
       checkCerts = any isDrepCert txBody.certs
@@ -270,8 +284,26 @@ privateKeysToKeyWallet payKey mbStakeKey mbDrepKey =
         UpdateDrepCert cred _ -> cred == drepCred
         _ -> false
 
-  -- TODO: Support signing data using DRep keys
-  signData :: NetworkId -> RawBytes -> Aff DataSignature
-  signData networkId payload = do
-    addr <- address networkId
-    liftEffect $ MessageSigning.signData (unwrap payKey) addr payload
+  signData :: SignDataAddr -> NetworkId -> RawBytes -> Aff DataSignature
+  signData addr networkId payload =
+    case addr of
+      WalletAddress -> do
+        walletAddr <- address networkId
+        liftEffect $ MessageSigning.signData (unwrap payKey) walletAddr payload
+      DrepId -> do
+        drepKey <- liftMaybe
+          ( error
+              "signData: Could not sign data using DRep key. The key is not set."
+          )
+          mbDrepKey
+        let
+          -- To construct an address for DRep Key, the client application
+          -- should construct a type 6 address.
+          -- https://developers.cardano.org/docs/governance/cardano-improvement-proposals/cip-0095/#supported-credentials
+          drepAddr =
+            mkPaymentAddress networkId
+              ( PaymentCredential $ PubKeyHashCredential $ privateKeyToPkh
+                  drepKey
+              )
+              Nothing
+        liftEffect $ MessageSigning.signData (unwrap drepKey) drepAddr payload
