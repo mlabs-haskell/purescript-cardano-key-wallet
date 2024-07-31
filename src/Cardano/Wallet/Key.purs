@@ -3,7 +3,6 @@ module Cardano.Wallet.Key
   , PrivateDrepKey(PrivateDrepKey)
   , PrivatePaymentKey(PrivatePaymentKey)
   , PrivateStakeKey(PrivateStakeKey)
-  , SignDataAddr(WalletAddress, DrepId)
   , privateKeyToPkh
   , privateKeysToAddress
   , privateKeysToKeyWallet
@@ -26,7 +25,7 @@ import Cardano.MessageSigning (DataSignature)
 import Cardano.MessageSigning (signData) as MessageSigning
 import Cardano.Types (Vkeywitness)
 import Cardano.Types.Address
-  ( Address(BaseAddress, EnterpriseAddress)
+  ( Address(BaseAddress, EnterpriseAddress, RewardAddress)
   , mkPaymentAddress
   )
 import Cardano.Types.Certificate
@@ -84,20 +83,13 @@ newtype KeyWallet = KeyWallet
       -- ^ UTxOs to select from
       -> Aff (Maybe (Array TransactionUnspentOutput))
   , signTx :: Transaction -> Aff TransactionWitnessSet
-  , signData :: SignDataAddr -> NetworkId -> RawBytes -> Aff DataSignature
+  , signData :: Address -> RawBytes -> Aff (Maybe DataSignature)
   , paymentKey :: Aff PrivatePaymentKey
   , stakeKey :: Aff (Maybe PrivateStakeKey)
   , drepKey :: Aff (Maybe PrivateDrepKey)
   }
 
 derive instance Newtype KeyWallet _
-
-data SignDataAddr = WalletAddress | DrepId
-
-derive instance Generic SignDataAddr _
-
-instance Show SignDataAddr where
-  show = genericShow
 
 newtype PrivatePaymentKey = PrivatePaymentKey PrivateKey
 
@@ -158,6 +150,9 @@ privateKeyToPkh =
   PublicKey.hash
     <<< PrivateKey.toPublicKey
     <<< unwrap
+
+privateKeyToPkhCred :: forall t. Newtype t PrivateKey => t -> Credential
+privateKeyToPkhCred = PubKeyHashCredential <<< privateKeyToPkh
 
 getPrivatePaymentKey :: KeyWallet -> Aff PrivatePaymentKey
 getPrivatePaymentKey = unwrap >>> _.paymentKey
@@ -283,27 +278,42 @@ privateKeysToKeyWallet payKey mbStakeKey mbDrepKey =
         UnregDrepCert cred _ -> cred == drepCred
         UpdateDrepCert cred _ -> cred == drepCred
         _ -> false
+  
+  -- Inspect and provide a DataSignature for the supplied data using
+  -- a key identified by the supplied address.
+  --
+  -- This function returns Nothing if the wallet does not have the
+  -- required keys.
+  --
+  -- Supported Credentials:
+  --   payment key: base addresses with any stake credential, enterprise addresses
+  --   stake key: reward addresses
+  --   drep key: enterprise addresses
+  --
+  -- NOTE: Pointer addresses are not supported.
+  signData :: Address -> RawBytes -> Aff (Maybe DataSignature)
+  signData addr payload =
+    liftEffect do
+      case addr of
+        BaseAddress baseAddr
+          | baseAddr.paymentCredential == payCred ->
+              Just <$> MessageSigning.signData (unwrap payKey) addr payload
 
-  signData :: SignDataAddr -> NetworkId -> RawBytes -> Aff DataSignature
-  signData addr networkId payload =
-    case addr of
-      WalletAddress -> do
-        walletAddr <- address networkId
-        liftEffect $ MessageSigning.signData (unwrap payKey) walletAddr payload
-      DrepId -> do
-        drepKey <- liftMaybe
-          ( error
-              "signData: Could not sign data using DRep key. The key is not set."
-          )
-          mbDrepKey
-        let
-          -- To construct an address for DRep Key, the client application
-          -- should construct a type 6 address.
-          -- https://developers.cardano.org/docs/governance/cardano-improvement-proposals/cip-0095/#supported-credentials
-          drepAddr =
-            mkPaymentAddress networkId
-              ( PaymentCredential $ PubKeyHashCredential $ privateKeyToPkh
-                  drepKey
-              )
-              Nothing
-        liftEffect $ MessageSigning.signData (unwrap drepKey) drepAddr payload
+        RewardAddress rewardAddr
+          | Just stakeKey@(PrivateStakeKey key) <- mbStakeKey
+          , rewardAddr.stakeCredential == wrap (privateKeyToPkhCred stakeKey) ->
+              Just <$> MessageSigning.signData key addr payload
+
+        EnterpriseAddress entAddr
+          | entAddr.paymentCredential == payCred ->
+              Just <$> MessageSigning.signData (unwrap payKey) addr payload
+
+        EnterpriseAddress entAddr
+          | Just drepKey@(PrivateDrepKey key) <- mbDrepKey
+          , entAddr.paymentCredential == wrap (privateKeyToPkhCred drepKey) ->
+              Just <$> MessageSigning.signData key addr payload
+
+        _ -> pure Nothing
+    where
+    payCred :: PaymentCredential
+    payCred = wrap $ privateKeyToPkhCred payKey
