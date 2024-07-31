@@ -4,6 +4,7 @@ module Cardano.Wallet.Key
   , PrivatePaymentKey(PrivatePaymentKey)
   , PrivateStakeKey(PrivateStakeKey)
   , privateKeyToPkh
+  , privateKeyToPkhCred
   , privateKeysToAddress
   , privateKeysToKeyWallet
   , getPrivateDrepKey
@@ -26,7 +27,6 @@ import Cardano.MessageSigning (signData) as MessageSigning
 import Cardano.Types (Vkeywitness)
 import Cardano.Types.Address
   ( Address(BaseAddress, EnterpriseAddress, RewardAddress)
-  , mkPaymentAddress
   )
 import Cardano.Types.Certificate
   ( Certificate(RegDrepCert, UnregDrepCert, UpdateDrepCert)
@@ -49,19 +49,15 @@ import Cardano.Types.TransactionWitnessSet
   )
 import Cardano.Types.UtxoMap (UtxoMap)
 import Cardano.Types.Voter (Voter(Drep))
-import Control.Monad.Error.Class (liftMaybe)
 import Data.Array (catMaybes, elem) as Array
 import Data.Array (fromFoldable)
 import Data.Either (note)
 import Data.Foldable (any)
-import Data.Generic.Rep (class Generic)
 import Data.Map (member) as Map
 import Data.Maybe (Maybe(Just, Nothing))
 import Data.Newtype (class Newtype, unwrap, wrap)
-import Data.Show.Generic (genericShow)
 import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
-import Effect.Exception (error)
 
 -------------------------------------------------------------------------------
 -- Key backend
@@ -278,7 +274,7 @@ privateKeysToKeyWallet payKey mbStakeKey mbDrepKey =
         UnregDrepCert cred _ -> cred == drepCred
         UpdateDrepCert cred _ -> cred == drepCred
         _ -> false
-  
+
   -- Inspect and provide a DataSignature for the supplied data using
   -- a key identified by the supplied address.
   --
