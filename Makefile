@@ -31,6 +31,7 @@ check-format: check-explicit-exports
 		--parser-options 'sourceType: module' --parser-options 'ecmaVersion: 2016'
 
 format:
+	@doctoc CHANGELOG.md --github --notitle
 	@purs-tidy format-in-place ${ps-sources}
 	@nixpkgs-fmt ${nix-sources}
 	prettier -w ${js-sources}
