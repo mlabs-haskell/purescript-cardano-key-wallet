@@ -13,6 +13,9 @@
         "@mlabs-haskell/json-bigint": "^2.0.0",
         "@mlabs-haskell/cardano-serialization-lib-gc": "^1.0.10"
     },
+    "devDependencies": {
+        "doctoc": "^2.2.1"
+    },
     "prettier": {
         "arrowParens": "avoid",
         "trailingComma": "none"

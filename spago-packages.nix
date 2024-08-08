@@ -199,11 +199,11 @@ let
 
     "cardano-serialization-lib" = pkgs.stdenv.mkDerivation {
         name = "cardano-serialization-lib";
-        version = "26d437c3f398172c839b93b57c30eb43a7fa7ca";
+        version = "v1.0.0";
         src = pkgs.fetchgit {
           url = "https://github.com/mlabs-haskell/purescript-cardano-serialization-lib";
-          rev = "26d437c3f398172c839b93b57c30eb43a7fa7ca0";
-          sha256 = "1ikz6j3jvls3cvl6znrw55f59abzdaf7ggd2x7j3f81m5cvkxggr";
+          rev = "903bf0adeefedc4d065ad6523ad079433bdd8e32";
+          sha256 = "0jlfxrx037hyd4v0j7l2b16yxlm6nw6qlnr992hj9nzip36vbpfg";
         };
         phases = "installPhase";
         installPhase = "ln -s $src $out";
@@ -211,11 +211,11 @@ let
 
     "cardano-types" = pkgs.stdenv.mkDerivation {
         name = "cardano-types";
-        version = "v1.0.1";
+        version = "56877b43ea392ef6486e37d52e1c37d8c2b8c42d";
         src = pkgs.fetchgit {
           url = "https://github.com/mlabs-haskell/purescript-cardano-types";
-          rev = "715d4b2dcf8b29cb45001209ee562f758a513261";
-          sha256 = "1xcrdmpwd3qcdiyjfrj0z2dh56l4z1s97r25b6nhlqwmwz7qz19z";
+          rev = "56877b43ea392ef6486e37d52e1c37d8c2b8c42d";
+          sha256 = "04h78kivkm9nnz5pxjqvgsf7g9gfzzjn6crwj3lh1m7kxgb1yxds";
         };
         phases = "installPhase";
         installPhase = "ln -s $src $out";
@@ -636,6 +636,18 @@ let
           url = "https://github.com/garyb/purescript-mote.git";
           rev = "3306aa32753cd345ca41b058b26584fe890ac895";
           sha256 = "11vwbvxylvyfghmz7616727vrq20qcmz7d61y9lyq550q0bkg0np";
+        };
+        phases = "installPhase";
+        installPhase = "ln -s $src $out";
+      };
+
+    "mote-testplan" = pkgs.stdenv.mkDerivation {
+        name = "mote-testplan";
+        version = "d1c93e08ef09f5427b460f396b89da7255f8af52";
+        src = pkgs.fetchgit {
+          url = "https://github.com/mlabs-haskell/purescript-mote-testplan";
+          rev = "d1c93e08ef09f5427b460f396b89da7255f8af52";
+          sha256 = "1317v612hq1hlw3m6vvzjfpg3vzm4pdlpix6z4z221cpgaga4i2r";
         };
         phases = "installPhase";
         installPhase = "ln -s $src $out";

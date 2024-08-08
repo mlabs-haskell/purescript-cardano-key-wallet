@@ -1,9 +1,13 @@
 module Cardano.Wallet.Key
   ( KeyWallet(KeyWallet)
+  , PrivateDrepKey(PrivateDrepKey)
   , PrivatePaymentKey(PrivatePaymentKey)
   , PrivateStakeKey(PrivateStakeKey)
+  , privateKeyToPkh
+  , privateKeyToPkhCred
   , privateKeysToAddress
   , privateKeysToKeyWallet
+  , getPrivateDrepKey
   , getPrivatePaymentKey
   , getPrivateStakeKey
   ) where
@@ -21,9 +25,15 @@ import Cardano.Collateral.Select as Collateral
 import Cardano.MessageSigning (DataSignature)
 import Cardano.MessageSigning (signData) as MessageSigning
 import Cardano.Types (Vkeywitness)
-import Cardano.Types.Address (Address(BaseAddress, EnterpriseAddress))
+import Cardano.Types.Address
+  ( Address(BaseAddress, EnterpriseAddress, RewardAddress)
+  )
+import Cardano.Types.Certificate
+  ( Certificate(RegDrepCert, UnregDrepCert, UpdateDrepCert)
+  )
 import Cardano.Types.Coin (Coin)
 import Cardano.Types.Credential (Credential(PubKeyHashCredential))
+import Cardano.Types.Ed25519KeyHash (Ed25519KeyHash)
 import Cardano.Types.NetworkId (NetworkId)
 import Cardano.Types.PaymentCredential (PaymentCredential(PaymentCredential))
 import Cardano.Types.PrivateKey (PrivateKey(PrivateKey))
@@ -31,15 +41,19 @@ import Cardano.Types.PrivateKey as PrivateKey
 import Cardano.Types.PublicKey as PublicKey
 import Cardano.Types.RawBytes (RawBytes)
 import Cardano.Types.StakeCredential (StakeCredential(StakeCredential))
-import Cardano.Types.Transaction (Transaction, hash)
+import Cardano.Types.Transaction (Transaction(Transaction), hash)
+import Cardano.Types.TransactionBody (TransactionBody(TransactionBody))
 import Cardano.Types.TransactionUnspentOutput (TransactionUnspentOutput)
 import Cardano.Types.TransactionWitnessSet
   ( TransactionWitnessSet(TransactionWitnessSet)
   )
 import Cardano.Types.UtxoMap (UtxoMap)
+import Cardano.Types.Voter (Voter(Drep))
+import Data.Array (catMaybes, elem) as Array
 import Data.Array (fromFoldable)
 import Data.Either (note)
-import Data.Foldable (fold)
+import Data.Foldable (any)
+import Data.Map (member) as Map
 import Data.Maybe (Maybe(Just, Nothing))
 import Data.Newtype (class Newtype, unwrap, wrap)
 import Effect.Aff (Aff)
@@ -65,9 +79,10 @@ newtype KeyWallet = KeyWallet
       -- ^ UTxOs to select from
       -> Aff (Maybe (Array TransactionUnspentOutput))
   , signTx :: Transaction -> Aff TransactionWitnessSet
-  , signData :: NetworkId -> RawBytes -> Aff DataSignature
+  , signData :: Address -> RawBytes -> Aff (Maybe DataSignature)
   , paymentKey :: Aff PrivatePaymentKey
   , stakeKey :: Aff (Maybe PrivateStakeKey)
+  , drepKey :: Aff (Maybe PrivateDrepKey)
   }
 
 derive instance Newtype KeyWallet _
@@ -108,11 +123,41 @@ instance DecodeAeson PrivateStakeKey where
         <<< map PrivateStakeKey
         <<< PrivateKey.fromBech32
 
+newtype PrivateDrepKey = PrivateDrepKey PrivateKey
+
+derive instance Newtype PrivateDrepKey _
+
+instance Show PrivateDrepKey where
+  show _ = "(PrivateDrepKey <hidden>)"
+
+instance EncodeAeson PrivateDrepKey where
+  encodeAeson (PrivateDrepKey pk) = encodeAeson
+    (PrivateKey.toBech32 pk)
+
+instance DecodeAeson PrivateDrepKey where
+  decodeAeson aeson =
+    decodeAeson aeson >>=
+      note (TypeMismatch "PrivateKey")
+        <<< map PrivateDrepKey
+        <<< PrivateKey.fromBech32
+
+privateKeyToPkh :: forall t. Newtype t PrivateKey => t -> Ed25519KeyHash
+privateKeyToPkh =
+  PublicKey.hash
+    <<< PrivateKey.toPublicKey
+    <<< unwrap
+
+privateKeyToPkhCred :: forall t. Newtype t PrivateKey => t -> Credential
+privateKeyToPkhCred = PubKeyHashCredential <<< privateKeyToPkh
+
 getPrivatePaymentKey :: KeyWallet -> Aff PrivatePaymentKey
 getPrivatePaymentKey = unwrap >>> _.paymentKey
 
 getPrivateStakeKey :: KeyWallet -> Aff (Maybe PrivateStakeKey)
 getPrivateStakeKey = unwrap >>> _.stakeKey
+
+getPrivateDrepKey :: KeyWallet -> Aff (Maybe PrivateDrepKey)
+getPrivateDrepKey = unwrap >>> _.drepKey
 
 privateKeysToAddress
   :: PrivatePaymentKey -> Maybe PrivateStakeKey -> NetworkId -> Address
@@ -142,8 +187,11 @@ privateKeysToAddress payKey mbStakeKey networkId = do
       >>> EnterpriseAddress
 
 privateKeysToKeyWallet
-  :: PrivatePaymentKey -> Maybe PrivateStakeKey -> KeyWallet
-privateKeysToKeyWallet payKey mbStakeKey =
+  :: PrivatePaymentKey
+  -> Maybe PrivateStakeKey
+  -> Maybe PrivateDrepKey
+  -> KeyWallet
+privateKeysToKeyWallet payKey mbStakeKey mbDrepKey =
   KeyWallet
     { address
     , selectCollateral
@@ -151,6 +199,7 @@ privateKeysToKeyWallet payKey mbStakeKey =
     , signData
     , paymentKey: pure payKey
     , stakeKey: pure mbStakeKey
+    , drepKey: pure mbDrepKey
     }
   where
   address :: NetworkId -> Aff Address
@@ -173,16 +222,23 @@ privateKeysToKeyWallet payKey mbStakeKey =
       utxos
 
   signTx :: Transaction -> Aff TransactionWitnessSet
-  signTx tx = liftEffect do
+  signTx tx@(Transaction { body: TransactionBody txBody }) = liftEffect do
     let
       txHash = hash tx
       payWitness = PrivateKey.makeVkeyWitness txHash (unwrap payKey)
       mbStakeWitness =
         mbStakeKey <#> \stakeKey ->
           PrivateKey.makeVkeyWitness txHash (unwrap stakeKey)
-      witnessSet' =
-        updateVkeys ([ payWitness ] <> fold (pure <$> mbStakeWitness)) mempty
-    pure witnessSet'
+      mbDrepWitness = do
+        drepKey <- mbDrepKey
+        if drepSigRequired drepKey then Just $ PrivateKey.makeVkeyWitness txHash
+          (unwrap drepKey)
+        else Nothing
+      witnessSet =
+        updateVkeys
+          (Array.catMaybes [ Just payWitness, mbStakeWitness, mbDrepWitness ])
+          mempty
+    pure witnessSet
     where
     updateVkeys
       :: Array Vkeywitness
@@ -191,8 +247,69 @@ privateKeysToKeyWallet payKey mbStakeKey =
     updateVkeys newVkeys (TransactionWitnessSet tws) =
       TransactionWitnessSet (tws { vkeys = newVkeys })
 
-  signData :: NetworkId -> RawBytes -> Aff DataSignature
-  signData networkId payload = do
-    addr <- address networkId
-    liftEffect $ MessageSigning.signData (unwrap payKey) addr payload
+    drepSigRequired :: PrivateDrepKey -> Boolean
+    drepSigRequired drepKey =
+      checkCerts
+        || checkVotes
+        || checkRequiredSigners
+      where
+      checkCerts :: Boolean
+      checkCerts = any isDrepCert txBody.certs
 
+      checkVotes :: Boolean
+      checkVotes = Map.member (Drep drepCred) $ unwrap txBody.votingProcedures
+
+      checkRequiredSigners :: Boolean
+      checkRequiredSigners = Array.elem drepPkh txBody.requiredSigners
+
+      drepPkh :: Ed25519KeyHash
+      drepPkh = privateKeyToPkh drepKey
+
+      drepCred :: Credential
+      drepCred = PubKeyHashCredential drepPkh
+
+      isDrepCert :: Certificate -> Boolean
+      isDrepCert = case _ of
+        RegDrepCert cred _ _ -> cred == drepCred
+        UnregDrepCert cred _ -> cred == drepCred
+        UpdateDrepCert cred _ -> cred == drepCred
+        _ -> false
+
+  -- Inspect and provide a DataSignature for the supplied data using
+  -- a key identified by the supplied address.
+  --
+  -- This function returns Nothing if the wallet does not have the
+  -- required keys.
+  --
+  -- Supported Credentials:
+  --   payment key: base addresses with any stake credential, enterprise addresses
+  --   stake key: reward addresses
+  --   drep key: enterprise addresses
+  --
+  -- NOTE: Pointer addresses are not supported.
+  signData :: Address -> RawBytes -> Aff (Maybe DataSignature)
+  signData addr payload =
+    liftEffect do
+      case addr of
+        BaseAddress baseAddr
+          | baseAddr.paymentCredential == payCred ->
+              Just <$> MessageSigning.signData (unwrap payKey) addr payload
+
+        RewardAddress rewardAddr
+          | Just stakeKey@(PrivateStakeKey key) <- mbStakeKey
+          , rewardAddr.stakeCredential == wrap (privateKeyToPkhCred stakeKey) ->
+              Just <$> MessageSigning.signData key addr payload
+
+        EnterpriseAddress entAddr
+          | entAddr.paymentCredential == payCred ->
+              Just <$> MessageSigning.signData (unwrap payKey) addr payload
+
+        EnterpriseAddress entAddr
+          | Just drepKey@(PrivateDrepKey key) <- mbDrepKey
+          , entAddr.paymentCredential == wrap (privateKeyToPkhCred drepKey) ->
+              Just <$> MessageSigning.signData key addr payload
+
+        _ -> pure Nothing
+    where
+    payCred :: PaymentCredential
+    payCred = wrap $ privateKeyToPkhCred payKey
