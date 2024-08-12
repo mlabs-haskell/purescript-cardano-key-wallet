@@ -6,13 +6,15 @@ and we follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 
-- [[Unreleased]](#unreleased)
+- [v2.0.0](#v200)
   - [Added](#added)
   - [Changed](#changed)
+  - [Removed](#removed)
+- [v1.0.0](#v100)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
-## [Unreleased]
+## v2.0.0
 
 ### Added
 
@@ -35,3 +37,9 @@ transaction are now inspected to determine if a DRep signature needs to be
 attached. Note that the logic here differs from the one used with the stake
 witness, where a stake key signature is always attached if the key is present.
 ([#3](https://github.com/mlabs-haskell/purescript-cardano-key-wallet/pull/3))
+
+### Removed
+
+- `Cardano.Wallet.Cip30.SignData` - unused module
+
+## v1.0.0
