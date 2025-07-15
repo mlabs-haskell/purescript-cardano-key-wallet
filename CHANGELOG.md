@@ -6,13 +6,21 @@ and we follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 
+- [v3.0.0](#v300)
+  - [Changed](#changed)
 - [v2.0.0](#v200)
   - [Added](#added)
-  - [Changed](#changed)
+  - [Changed](#changed-1)
   - [Removed](#removed)
 - [v1.0.0](#v100)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
+
+## v3.0.0
+
+### Changed
+- Replace Cardano Serialization Library with Cardano Data Lite
+([#4](https://github.com/mlabs-haskell/purescript-cardano-key-wallet/pull/4))
 
 ## v2.0.0
 
